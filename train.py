@@ -107,8 +107,13 @@ def train():
         print('Loading base network...')
         ssd_net.vgg.load_state_dict(vgg_weights)
 
-    if args.cuda:
-        net = net.cuda()
+    # 19.7.16 add
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # 19.7.16 revision
+    # if args.cuda:
+    #     net = net.cuda()
+    net = net.to(device)
 
     if not args.resume:
         print('Initializing weights...')
@@ -156,6 +161,7 @@ def train():
             # reset epoch loss counters
             loc_loss = 0
             conf_loss = 0
+            batch_iterator = iter(data_loader)
 
         if iteration in cfg['lr_steps']:
             step_index += 1
@@ -164,12 +170,18 @@ def train():
         # load train data
         images, targets = next(batch_iterator)
 
-        if args.cuda:
-            images = Variable(images.cuda())
-            targets = [Variable(ann.cuda(), volatile=True) for ann in targets]
-        else:
-            images = Variable(images)
-            targets = [Variable(ann, volatile=True) for ann in targets]
+        # 19.7.16. revision
+        # if args.cuda:
+        #     images = images.cuda()
+        #     with torch.no_grad():
+        #         targets = [ann.cuda() for ann in targets]
+        # else:
+        #     images = images
+        #     with torch.no_grad():
+        #         targets = [ann for ann in targets]
+        images = images.to(device)
+        with torch.no_grad():
+            targets = [ann.to(device) for ann in targets]
         # forward
         t0 = time.time()
         out = net(images)
@@ -180,15 +192,15 @@ def train():
         loss.backward()
         optimizer.step()
         t1 = time.time()
-        loc_loss += loss_l.data
-        conf_loss += loss_c.data
+        loc_loss += loss_l.item()
+        conf_loss += loss_c.item()
 
         if iteration % 10 == 0:
             print('timer: %.4f sec.' % (t1 - t0))
-            print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.data), end=' ')
+            print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.item()), end=' ')
 
         if args.visdom:
-            update_vis_plot(iteration, loss_l.data, loss_c.data,
+            update_vis_plot(iteration, loss_l.item(), loss_c.item(),
                             iter_plot, epoch_plot, 'append')
 
         if iteration != 0 and iteration % 5000 == 0:
@@ -216,8 +228,8 @@ def xavier(param):
 
 def weights_init(m):
     if isinstance(m, nn.Conv2d):
-        xavier(m.weight.data)
-        m.bias.data.zero_()
+        xavier(m.weight.detach())
+        m.bias.detach().zero_()
 
 
 def create_vis_plot(_xlabel, _ylabel, _title, _legend):
